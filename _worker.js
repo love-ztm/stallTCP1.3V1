@@ -13,7 +13,7 @@ const DEFAULT_SUB_DOMAIN = "";  //可修改自定义的sub订阅器 为空则直
 const TG_GROUP_URL = "https://t.me/zyssadmin";   //可修改自定义内容
 const TG_CHANNEL_URL = "https://t.me/cloudflareorg";  //可此修改自定义内容
 const PROXY_CHECK_URL = "https://kaic.hidns.co/";  //可修改自定义的proxyip检测站
-const DEFAULT_CONVERTER = "https://subapi.cmliussss.net";  //可修改自定义后端api
+const DEFAULT_CONVERTER = "https://subapi.zrfme.com";  //可修改自定义后端api
 const CLASH_CONFIG = "https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/config/ACL4SSR_Online_Full_MultiMode.ini"; //可修改自定义订阅配置转换ini
 const SINGBOX_CONFIG_V12 = "https://raw.githubusercontent.com/sinspired/sub-store-template/main/1.12.x/sing-box.json"; //禁止修改 优先使用1.12 后用1.11
 const SINGBOX_CONFIG_V11 = "https://raw.githubusercontent.com/sinspired/sub-store-template/main/1.11.x/sing-box.json"; //禁止修改
@@ -610,13 +610,27 @@ function dashPage(host, uuid, proxyip, subpass, subdomain, converter, env, clien
 }
 
 // 导出放在最后，确保所有函数都已定义
+// ... (保留前面的 HTML/CSS/常量配置代码不变) ...
+
+// ... (保留前面的 HTML/CSS/常量配置代码不变) ...
+
+// =============================================================================
+// 🟢 核心逻辑：强制不缓存的 Headers 定义
+// =============================================================================
+const strictCacheHeaders = {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+    'Surrogate-Control': 'no-store'
+};
+
 export default {
   async fetch(r, env, ctx) { 
     try {
       const url = new URL(r.url);
       const host = url.hostname; 
       const UA = (r.headers.get('User-Agent') || "").toLowerCase();
-      // 🟢 关键：提取 UA_L 供后续使用
       const UA_L = UA.toLowerCase();
       
       const clientIP = r.headers.get('cf-connecting-ip');
@@ -624,8 +638,7 @@ export default {
       const city = r.cf?.city || 'Unknown';
 
       // 加载变量
-      const _UUID = env.KEY ?
-      await getDynamicUUID(env.KEY, env.UUID_REFRESH || 86400) : (await getSafeEnv(env, 'UUID', UUID));
+      const _UUID = env.KEY ? await getDynamicUUID(env.KEY, env.UUID_REFRESH || 86400) : (await getSafeEnv(env, 'UUID', UUID));
       const _WEB_PW = await getSafeEnv(env, 'WEB_PASSWORD', WEB_PASSWORD);
       const _SUB_PW = await getSafeEnv(env, 'SUB_PASSWORD', SUB_PASSWORD);
       const _PROXY_IP = await getSafeEnv(env, 'PROXYIP', DEFAULT_PROXY_IP);
@@ -636,8 +649,6 @@ export default {
 
       if (_SUB_DOMAIN.includes("://")) _SUB_DOMAIN = _SUB_DOMAIN.split("://")[1];
       if (_SUB_DOMAIN.includes("/")) _SUB_DOMAIN = _SUB_DOMAIN.split("/")[0];
-      
-      // 🟢 核心修复：如果读取到的域名为空，强制使用当前请求的 Host
       if (!_SUB_DOMAIN || _SUB_DOMAIN.trim() === "") _SUB_DOMAIN = host;
 
       if (_CONVERTER.endsWith("/")) _CONVERTER = _CONVERTER.slice(0, -1);
@@ -647,24 +658,13 @@ export default {
           return new Response('Not Found', { status: 404 });
       }
 
-      // =================================================================
-      // 1. 🛡️ 检查是否为管理员 (白名单逻辑)
-      // =================================================================
-      let hardcodedIPs = [];
-      if (typeof ADMIN_IP !== 'undefined' && ADMIN_IP && ADMIN_IP.trim() !== '') {
-          hardcodedIPs = ADMIN_IP.split(',').map(s => s.trim());
-      }
       let isGlobalAdmin = await checkWhitelist(env, clientIP);
 
-      // =================================================================
-      // 2. 🟢 身份验证逻辑 (决定权限与内容)
-      // =================================================================
       let isValidUser = false; 
       let hasAuthCookie = false; 
 
       const paramUUID = url.searchParams.get('uuid');
       if (paramUUID && paramUUID.toLowerCase() === _UUID.toLowerCase()) isValidUser = true;
-
       if (_SUB_PW && url.pathname === `/${_SUB_PW}`) isValidUser = true;
 
       if (_WEB_PW) {
@@ -680,51 +680,27 @@ export default {
         }
       }
 
-      if (isGlobalAdmin) {
-          isValidUser = true;
-      }
-
+      if (isGlobalAdmin) isValidUser = true;
       if (env.DB || env.LH) ctx.waitUntil(incrementDailyStats(env));
-
       if (url.pathname === '/favicon.ico') return new Response(null, { status: 404 });
       
-      // 🟢 API 接口
       const flag = url.searchParams.get('flag');
       if (flag) {
-          if (flag === 'github') {
-              await sendTgMsg(ctx, env, "🌟 用户点击了烈火项目", r, "来源: 登录页面直达链接", isGlobalAdmin);
-              return new Response(null, { status: 204 });
-          }
-          if (flag === 'log_proxy_check') {
-              await sendTgMsg(ctx, env, "🔍 用户点击了 ProxyIP 检测", r, "来源: 后台管理面板", isGlobalAdmin);
-              return new Response(null, { status: 204 });
-          }
-          if (flag === 'log_sub_test') {
-              await sendTgMsg(ctx, env, "🌟 用户点击了订阅测试", r, "来源: 后台管理面板", isGlobalAdmin);
-              return new Response(null, { status: 204 });
-          }
+          if (flag === 'github') { await sendTgMsg(ctx, env, "🌟 用户点击了烈火项目", r, "来源: 登录页面直达链接", isGlobalAdmin); return new Response(null, { status: 204 }); }
+          if (flag === 'log_proxy_check') { await sendTgMsg(ctx, env, "🔍 用户点击了 ProxyIP 检测", r, "来源: 后台管理面板", isGlobalAdmin); return new Response(null, { status: 204 }); }
+          if (flag === 'log_sub_test') { await sendTgMsg(ctx, env, "🌟 用户点击了订阅测试", r, "来源: 后台管理面板", isGlobalAdmin); return new Response(null, { status: 204 }); }
           if (flag === 'stats') {
               let reqCount = await incrementDailyStats(env);
               const cfStats = await getCloudflareUsage(env);
               const finalReq = cfStats.success ? `${cfStats.total} (API)` : `${reqCount} (Internal)`;
               const hasKV = !!(env.DB || env.LH);
               const cfConfigured = cfStats.success || (!!await getSafeEnv(env, 'CF_EMAIL', "") && !!await getSafeEnv(env, 'CF_KEY', ""));
-              return new Response(JSON.stringify({
-                  req: finalReq,
-                  ip: clientIP,
-                  loc: `${city}, ${country}`,
-                  hasKV: hasKV,
-                  cfConfigured: cfConfigured
-              }), { headers: { 'Content-Type': 'application/json' } });
+              return new Response(JSON.stringify({ req: finalReq, ip: clientIP, loc: `${city}, ${country}`, hasKV: hasKV, cfConfigured: cfConfigured }), { headers: { 'Content-Type': 'application/json' } });
            }
           if (flag === 'get_logs') {
               if (!hasAuthCookie && !isGlobalAdmin) return new Response('403 Forbidden', { status: 403 });
-              if (env.DB) { try { const { results } = await env.DB.prepare("SELECT * FROM logs ORDER BY id DESC LIMIT 50").all();
-              return new Response(JSON.stringify({ type: 'd1', logs: results }), { headers: { 'Content-Type': 'application/json' } });
-              } catch(e) {} }
-              else if (env.LH) { try { const logs = await env.LH.get('ACCESS_LOGS') ||
-              ""; return new Response(JSON.stringify({ type: 'kv', logs: logs }), { headers: { 'Content-Type': 'application/json' } });
-              } catch(e) {} }
+              if (env.DB) { try { const { results } = await env.DB.prepare("SELECT * FROM logs ORDER BY id DESC LIMIT 50").all(); return new Response(JSON.stringify({ type: 'd1', logs: results }), { headers: { 'Content-Type': 'application/json' } }); } catch(e) {} }
+              else if (env.LH) { try { const logs = await env.LH.get('ACCESS_LOGS') || ""; return new Response(JSON.stringify({ type: 'kv', logs: logs }), { headers: { 'Content-Type': 'application/json' } }); } catch(e) {} }
               return new Response(JSON.stringify({ logs: "No Storage" }), { headers: { 'Content-Type': 'application/json' } });
           }
           if (flag === 'get_whitelist') { 
@@ -734,24 +710,20 @@ export default {
           }
           if (flag === 'add_whitelist' && r.method === 'POST') {
               if (!hasAuthCookie && !isGlobalAdmin) return new Response('403 Forbidden', { status: 403 });
-              const body = await r.json();
-              if(body.ip) await addWhitelist(env, body.ip);
+              const body = await r.json(); if(body.ip) await addWhitelist(env, body.ip);
               return new Response(JSON.stringify({status:'ok'}), {headers:{'Content-Type':'application/json'}});
           }
           if (flag === 'del_whitelist' && r.method === 'POST') {
               if (!hasAuthCookie && !isGlobalAdmin) return new Response('403 Forbidden', { status: 403 });
-              const body = await r.json();
-              if(body.ip) await delWhitelist(env, body.ip);
+              const body = await r.json(); if(body.ip) await delWhitelist(env, body.ip);
               return new Response(JSON.stringify({status:'ok'}), {headers:{'Content-Type':'application/json'}});
           }
           if (flag === 'validate_tg' && r.method === 'POST') {
-              const body = await r.json();
-              await sendTgMsg(ctx, { TG_BOT_TOKEN: body.TG_BOT_TOKEN, TG_CHAT_ID: body.TG_CHAT_ID }, "🤖 TG 推送可用性验证", r, "配置有效", true);
+              const body = await r.json(); await sendTgMsg(ctx, { TG_BOT_TOKEN: body.TG_BOT_TOKEN, TG_CHAT_ID: body.TG_CHAT_ID }, "🤖 TG 推送可用性验证", r, "配置有效", true);
               return new Response(JSON.stringify({success:true, msg:"验证消息已发送"}), {headers:{'Content-Type':'application/json'}});
            }
           if (flag === 'validate_cf' && r.method === 'POST') {
-              const body = await r.json();
-              const res = await getCloudflareUsage(body);
+              const body = await r.json(); const res = await getCloudflareUsage(body);
               return new Response(JSON.stringify({success:res.success, msg: res.success ? `验证通过: 总请求 ${res.total}` : `验证失败: ${res.msg}`}), {headers:{'Content-Type':'application/json'}});
            }
           if (flag === 'save_config' && r.method === 'POST') {
@@ -763,8 +735,7 @@ export default {
                       if (env.LH) await env.LH.put(k, v);
                   }
                   return new Response(JSON.stringify({status: 'ok'}), { headers: { 'Content-Type': 'application/json' } });
-              } catch(e) { return new Response(JSON.stringify({status: 'error', msg: e.toString()}), { headers: { 'Content-Type': 'application/json' } });
-              }
+              } catch(e) { return new Response(JSON.stringify({status: 'error', msg: e.toString()}), { headers: { 'Content-Type': 'application/json' } }); }
           }
       }
 
@@ -775,16 +746,10 @@ export default {
           if (!isFlagged) {
               try {
                   const _d = (s) => atob(s);
-                  const rules = [
-                      ['TWlob21v', 'bWlob21v'], ['RmxDbGFzaA==', 'ZmxjbGFzaA=='], ['Q2xhc2g=', 'Y2xhc2g='], ['Q2xhc2g=', 'bWV0YQ=='], ['Q2xhc2g=', 'c3Rhc2g='], ['SGlkZGlmeQ==', 'aGlkZGlmeQ=='], ['U2luZy1ib3g=', 'c2luZy1ib3g='], ['U2luZy1ib3g=', 'c2luZ2JveA=='], ['U2luZy1ib3g=', 'c2Zp'], ['U2luZy1ib3g=', 'Ym94'], ['djJyYXlOL0NvcmU=', 'djJyYXk='], ['U3VyZ2U=', 'c3VyZ2U='], ['UXVhbnR1bXVsdCBY', 'cXVhbnR1bXVsdA=='], ['U2hhZG93cm9ja2V0', 'c2hhZG93cm9ja2V0'], ['TG9vbg==', 'bG9vbg=='], ['SGFB', 'aGFwcA==']
-                  ];
-                  let cName = "VW5rbm93bg=="; 
-                  let isProxy = false;
-                  for (const [n, k] of rules) { 
-                      if (UA_L.includes(_d(k))) { cName = n; isProxy = true; break; } 
-                  }
+                  const rules = [['TWlob21v', 'bWlob21v'], ['RmxDbGFzaA==', 'ZmxjbGFzaA=='], ['Q2xhc2g=', 'Y2xhc2g='], ['Q2xhc2g=', 'bWV0YQ=='], ['Q2xhc2g=', 'c3Rhc2g='], ['SGlkZGlmeQ==', 'aGlkZGlmeQ=='], ['U2luZy1ib3g=', 'c2luZy1ib3g='], ['U2luZy1ib3g=', 'c2luZ2JveA=='], ['U2luZy1ib3g=', 'c2Zp'], ['U2luZy1ib3g=', 'Ym94'], ['djJyYXlOL0NvcmU=', 'djJyYXk='], ['U3VyZ2U=', 'c3VyZ2U='], ['UXVhbnR1bXVsdCBY', 'cXVhbnR1bXVsdA=='], ['U2hhZG93cm9ja2V0', 'c2hhZG93cm9ja220'], ['TG9vbg==', 'bG9vbg=='], ['SGFB', 'aGFwcA==']];
+                  let cName = "VW5rbm93bg=="; let isProxy = false;
+                  for (const [n, k] of rules) { if (UA_L.includes(_d(k))) { cName = n; isProxy = true; break; } }
                   if (!isProxy && (UA_L.includes(_d('bW96aWxsYQ==')) || UA_L.includes(_d('Y2hyb21l')))) cName = "QnJvd3Nlcg==";
-                  
                   const title = isProxy ? "🔄 快速订阅更新" : "🌐 访问快速订阅页";
                   const p = sendTgMsg(ctx, env, title, r, `类型: ${_d(cName)}`, isGlobalAdmin);
                   if(ctx && ctx.waitUntil) ctx.waitUntil(p);
@@ -793,27 +758,38 @@ export default {
 
           const requestProxyIp = url.searchParams.get('proxyip') || _PROXY_IP;
           const pathParam = requestProxyIp ? "/proxyip=" + requestProxyIp : "/";
-          // 🟢 修复：特征码混淆
           const subUrl = `https://${_SUB_DOMAIN}/sub?uuid=${_UUID}&encryption=none&security=tls&sni=${host}&alpn=h3&fp=random&allowInsecure=1&type=ws&host=${host}&path=${encodeURIComponent(pathParam)}`;
 
-          // 🟢 智能识别：如果是常见代理客户端，走转换 API
-          if (UA_L.includes('sing-box') || UA_L.includes('singbox') || UA_L.includes('clash') || UA_L.includes('meta') || UA_L.includes('loon') || UA_L.includes('surge')) {
+          // 🟢 智能识别：sing-box 优先使用 1.11，失败则尝试 1.12
+          if (UA_L.includes('sing-box') || UA_L.includes('singbox') || UA_L.includes('clash') || UA_L.includes('meta')) {
               const type = (UA_L.includes('clash') || UA_L.includes('meta')) ? 'clash' : 'singbox';
-              const config = type === 'clash' ? CLASH_CONFIG : SINGBOX_CONFIG_V12;
-              const subApi = `${_CONVERTER}/sub?target=${type}&url=${encodeURIComponent(subUrl)}&config=${encodeURIComponent(config)}&emoji=true&list=false&sort=false&fdn=false&scv=false`;
+              // ⚠️ 关键修改：默认使用 V11 (1.11.x)
+              let config = type === 'clash' ? CLASH_CONFIG : SINGBOX_CONFIG_V11;
+              
+              const buildApiUrl = (conf) => `${_CONVERTER}/sub?target=${type}&url=${encodeURIComponent(subUrl)}&config=${encodeURIComponent(conf)}&emoji=true&list=false&sort=false&fdn=false&scv=false`;
+
               try {
-                  // 🟢 关键修复：添加 User-Agent 头，防止转换服务器拒绝
-                  const res = await fetch(subApi, {
-                      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' }
-                  });
-                  // 如果返回正常且不为空，直接返回
+                  let subApi = buildApiUrl(config);
+                  let res = await fetch(subApi, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+
+                  // ⚠️ 关键修改：如果当前是 singbox 且 V11 请求失败 (非 200)，自动切换到 V12 重试
+                  if (!res.ok && type === 'singbox' && config === SINGBOX_CONFIG_V11) {
+                      config = SINGBOX_CONFIG_V12;
+                      subApi = buildApiUrl(config);
+                      res = await fetch(subApi, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+                  }
+
                   if (res.ok) {
-                      return new Response(res.body, { status: 200, headers: res.headers });
+                      const newHeaders = new Headers(res.headers);
+                      newHeaders.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+                      newHeaders.set('Pragma', 'no-cache');
+                      newHeaders.set('Expires', '0');
+                      return new Response(res.body, { status: 200, headers: newHeaders });
                   }
               } catch(e) {}
           }
 
-          // 🟢 如果 UA 识别失败，或者转换失败，回退到本地逻辑
+          // 🟢 常规订阅 fallback
           try {
             if (host.toLowerCase() !== _SUB_DOMAIN.toLowerCase()) {
                 const res = await fetch(subUrl, { headers: { 'User-Agent': UA } });
@@ -831,14 +807,14 @@ export default {
                             body = btoa(modified); 
                         } catch(e) {}
                     }
-                    return new Response(body, { status: 200, headers: res.headers });
+                    return new Response(body, { status: 200, headers: strictCacheHeaders });
                 }
             }
         } catch(e) {}
 
           const allIPs = await getCustomIPs(env);
           const listText = genNodes(host, _UUID, requestProxyIp, allIPs, _PS);
-          return new Response(btoa(unescape(encodeURIComponent(listText))), { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+          return new Response(btoa(unescape(encodeURIComponent(listText))), { status: 200, headers: strictCacheHeaders });
       }
 
       // 🟢 常规订阅 /sub
@@ -853,35 +829,27 @@ export default {
           
           const allIPs = await getCustomIPs(env);
           const listText = genNodes(host, _UUID, proxyIp, allIPs, _PS);
-          return new Response(btoa(unescape(encodeURIComponent(listText))), { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+          return new Response(btoa(unescape(encodeURIComponent(listText))), { status: 200, headers: strictCacheHeaders });
       }
 
-      // 🟢 面板逻辑 (HTTP)
+      // 🟢 面板逻辑
       if (r.headers.get('Upgrade') !== 'websocket') {
-        const noCacheHeaders = { 
+        const panelHeaders = { 
             'Content-Type': 'text/html; charset=utf-8', 
-            'Cache-Control': 'no-store',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
             'X-Frame-Options': 'DENY', 
             'X-Content-Type-Options': 'nosniff',
             'Referrer-Policy': 'same-origin'
         };
         
         if (!hasAuthCookie) {
-            return new Response(loginPage(TG_GROUP_URL, TG_CHANNEL_URL), { status: 200, headers: noCacheHeaders });
+            return new Response(loginPage(TG_GROUP_URL, TG_CHANNEL_URL), { status: 200, headers: panelHeaders });
         }
 
           await sendTgMsg(ctx, env, "✅ 后台登录成功", r, "进入管理面板", true); 
           ctx.waitUntil(logAccess(env, clientIP, `${city},${country}`, "登录后台"));
           
-          const sysParams = {
-              tgToken: env.TG_BOT_TOKEN || TG_BOT_TOKEN,
-              tgId: env.TG_CHAT_ID || TG_CHAT_ID,
-              cfId: env.CF_ID || "",
-              cfToken: env.CF_TOKEN || "",
-              cfMail: env.CF_EMAIL || "",
-              cfKey: env.CF_KEY || ""
-          };
-
+          const sysParams = { tgToken: env.TG_BOT_TOKEN || TG_BOT_TOKEN, tgId: env.TG_CHAT_ID || TG_CHAT_ID, cfId: env.CF_ID || "", cfToken: env.CF_TOKEN || "", cfMail: env.CF_EMAIL || "", cfKey: env.CF_KEY || "" };
           const tgToken = await getSafeEnv(env, 'TG_BOT_TOKEN', TG_BOT_TOKEN);
           const tgId = await getSafeEnv(env, 'TG_CHAT_ID', TG_CHAT_ID);
           const cfId = await getSafeEnv(env, 'CF_ID', '');
@@ -890,23 +858,21 @@ export default {
           const cfKey = await getSafeEnv(env, 'CF_KEY', '');
           const tgState = !!(tgToken && tgId);
           const cfState = (!!(cfId && cfToken)) || (!!(cfMail && cfKey));
-          
           const _ADD = await getSafeEnv(env, 'ADD', "");
           const _ADDAPI = await getSafeEnv(env, 'ADDAPI', "");
           const _ADDCSV = await getSafeEnv(env, 'ADDCSV', "");
 
-          return new Response(dashPage(url.hostname, _UUID, _PROXY_IP, _SUB_PW, _SUB_DOMAIN, _CONVERTER, env, clientIP, hasAuthCookie, tgState, cfState, _ADD, _ADDAPI, _ADDCSV, tgToken, tgId, cfId, cfToken, cfMail, cfKey, sysParams), { status: 200, headers: noCacheHeaders });
+          return new Response(dashPage(url.hostname, _UUID, _PROXY_IP, _SUB_PW, _SUB_DOMAIN, _CONVERTER, env, clientIP, hasAuthCookie, tgState, cfState, _ADD, _ADDAPI, _ADDCSV, tgToken, tgId, cfId, cfToken, cfMail, cfKey, sysParams), { status: 200, headers: panelHeaders });
       }
       
-      // 🟣 代理逻辑 (WebSocket)
+      // 🟣 代理逻辑
       let proxyIPConfig = null;
       if (url.pathname.includes('/proxyip=')) {
         try {
           const proxyParam = url.pathname.split('/proxyip=')[1].split('/')[0];
           const [address, port] = await parseIP(proxyParam); 
           proxyIPConfig = { address, port: +port }; 
-        } catch (e) { console.error(e);
-        }
+        } catch (e) { console.error(e); }
       }
       const { 0: c, 1: s } = new WebSocketPair();
       s.accept(); 
